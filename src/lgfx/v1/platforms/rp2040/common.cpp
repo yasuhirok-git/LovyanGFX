@@ -455,6 +455,66 @@ namespace lgfx
     {
 
     }
+
+    __attribute__ ((always_inline)) inline uint8_t spi_read_byte(volatile spi_hw_t * spi_regs)
+    {
+      uint32_t data = spi_regs->dr;
+      return static_cast<uint8_t>(data);
+    }
+
+    __attribute__ ((always_inline)) inline void spi_write_byte(volatile spi_hw_t * spi_regs, uint8_t byte)
+    {
+      spi_regs->dr = byte;
+    }
+
+    __attribute__ ((always_inline)) inline bool spi_is_rx_fifo_not_empty(volatile spi_hw_t * spi_regs) 
+    {
+      return ((spi_regs->sr & SPI_SSPSR_RNE_BITS)  != 0);
+    }
+
+    __attribute__ ((always_inline)) inline bool spi_is_rx_fifo_empty(volatile spi_hw_t * spi_regs) 
+    {
+      return ((spi_regs->sr & SPI_SSPSR_RNE_BITS)  == 0);
+    }
+
+    __attribute__ ((always_inline)) inline void spi_set_dss_8(volatile spi_hw_t * spi_regs)
+    {
+      // Field       : SPI_SSPCR0_DSS
+      // Description : Data Size Select: 0000 Reserved, undefined operation. 0001
+      //               Reserved, undefined operation. 0010 Reserved, undefined
+      //               operation. 0011 4-bit data. 0100 5-bit data. 0101 6-bit data.
+      //               0110 7-bit data. 0111 8-bit data. 1000 9-bit data. 1001 10-bit
+      //               data. 1010 11-bit data. 1011 12-bit data. 1100 13-bit data.
+      //               1101 14-bit data. 1110 15-bit data. 1111 16-bit data.
+      uint32_t temp = spi_regs->cr0;
+      temp &= ~SPI_SSPCR0_DSS_BITS;
+      temp |= 7;
+      spi_regs->cr0 = temp;
+    }
+
+        
+    __attribute__ ((always_inline)) inline void spi_clear_rx_fifo(volatile spi_hw_t * spi_regs)
+    {
+      while (spi_is_rx_fifo_not_empty(spi_regs))
+      {
+        static_cast<void>(spi_read_byte(spi_regs));
+      }
+    }
+
+    void readBytes(int spi_port, uint8_t *data, size_t length)
+    {
+      if (length == 0) {
+        return;
+      }
+      volatile spi_hw_t * spi_regs = spi_dev[spi_port];
+      spi_clear_rx_fifo(spi_regs);
+      spi_set_dss_8(spi_regs);
+      do {
+        spi_write_byte(spi_regs, *data);
+        while (spi_is_rx_fifo_empty(spi_regs)) {}
+        *data++ = spi_read_byte(spi_regs);
+      } while (--length);
+    }
   }
 
 //----------------------------------------------------------------------------
@@ -1056,7 +1116,7 @@ namespace lgfx
       return {};
     }
 
-    cpp::result<void, error_t> readBytes(int i2c_port, uint8_t *data, size_t length, bool last_nack = false)
+    cpp::result<void, error_t> readBytes(int i2c_port, uint8_t *data, size_t length)
     {
       volatile i2c_hw_t *const i2c_regs = i2c_dev[i2c_port];
       auto info = &i2c_info[i2c_port];
